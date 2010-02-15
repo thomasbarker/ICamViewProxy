@@ -23,6 +23,9 @@ m_nport(9001)
 	//single 6 byte packet for request
 	pRequestImage = SDLNet_AllocPacket(6);
 
+	//single 8 byte packet for request
+	pRequestMovement = SDLNet_AllocPacket(8);
+
 	//single 72 byte packet for login
 	pLogin = SDLNet_AllocPacket(72);
 
@@ -45,6 +48,7 @@ ICamViewSocket::~ICamViewSocket(void)
 	SDLNet_FreePacketV(pResponses);
 	SDLNet_FreePacket(pLogin);
 	SDLNet_FreePacket(pRequestImage);
+	SDLNet_FreePacket(pRequestMovement);
 	SDLNet_FreePacket(pResponse);
 	delete [] pimage;
 	delete [] pgoodimage;
@@ -161,7 +165,96 @@ int ICamViewSocket::Login()
 	int nstatus = Send(0, pLogin);
 
 	//receive response but dont do anything with it as its useless
-	nstatus = Receive(pResponse, 0, 100);	
+	nstatus = Receive(pResponse, 0, 100);
+
+	return 0;
+}
+
+
+/*
+* Send a Logout packet to the webserver
+*/
+int ICamViewSocket::Logout()
+{
+	//reset data
+	memset(pLogin->data,0,6);
+	memset(pResponse->data,0,BUFFERSIZE);
+
+	pResponse->len =0;
+	pLogin->len = 0;
+
+	//message id
+	int byteid = 0;
+
+	//ID of login message, matters not here as it is not checked
+	pLogin->data[byteid++] = '0';
+	pLogin->data[byteid++] = '1';
+
+	// message type
+	//logout
+	pLogin->data[byteid++] = '0';
+	pLogin->data[byteid++] = '0';
+	pLogin->data[byteid++] = '1';
+	pLogin->data[byteid++] = '1';
+
+	pLogin->len = byteid;
+
+	//send packet
+	int nstatus = Send(0, pLogin);
+
+	//receive response but dont do anything with it as its useless
+	nstatus = Receive(pResponse, 0, 100);
+
+	return 0;
+}
+
+
+/*
+* Send a Movement packet to the webserver
+*/
+int ICamViewSocket::Movement(std::string direction)
+{
+	//reset data
+	memset(pRequestMovement->data,0,6);
+	memset(pResponse->data,0,BUFFERSIZE);
+
+	pRequestMovement->len = 0;
+
+	int byteid = 0;
+
+	pRequestMovement->data[byteid++] = '2';
+	pRequestMovement->data[byteid++] = '0';
+
+	pRequestMovement->data[byteid++] = '5';
+	pRequestMovement->data[byteid++] = '0';
+	pRequestMovement->data[byteid++] = '0';
+	pRequestMovement->data[byteid++] = '5';
+
+	// 0 = small
+	// 1 = big
+	pRequestMovement->data[byteid++] = '0';
+
+	// 1 = up
+	// 2 = down
+	// 3 = left
+	// 4 = right
+	if (direction.compare("up") == 0)
+	  pRequestMovement->data[byteid++] = '1';
+	else if (direction.compare("down") == 0)
+	  pRequestMovement->data[byteid++] = '2';
+	else if (direction.compare("right") == 0)
+	  pRequestMovement->data[byteid++] = '3';
+	else if (direction.compare("left") == 0)
+	  pRequestMovement->data[byteid++] = '4';
+	else {
+	  std::cout << "Unknown movement direction: " << direction << "\n";
+	  return -1;
+	}
+
+	pRequestMovement->len = byteid;
+
+	int nstatus = Send(0, pRequestMovement);
+	nstatus = Receive(pResponse, 0, 100);
 
 	return 0;
 }
@@ -247,7 +340,7 @@ int ICamViewSocket::RequestImage()
 	pRequestImage->data[byteid++] = '3';
 	pRequestImage->data[byteid++] = '0';
 	pRequestImage->data[byteid++] = '0';
-	pRequestImage->data[byteid++] = '3';
+	pRequestImage->data[byteid++] = '2';
 	pRequestImage->len = 6;
 
 	//receive response
@@ -321,6 +414,10 @@ int ICamViewSocket::RequestImage()
 				//get offset type
 				memcpy(offset, &pData[2], 6);
 				noffset = atoi( offset );
+				if( noffset > BUFFERSIZE) {
+				  printf("Offset too high\n");
+				  return -1;
+				}
 
 				if( noffset == 0) //initial packet of image
 				{
@@ -348,8 +445,8 @@ int ICamViewSocket::RequestImage()
 					}
 
 					//copy initial bytes into start of image
-					memcpy( &pimage[nbytesrec], &pData[37], nrec - 37);
-					nbytesrec += (nrec - 37);
+					memcpy( &pimage[nbytesrec], &pData[25], nrec - 25);
+					nbytesrec += (nrec - 25);
 				}
 				else if(pimage != NULL)
 				{	

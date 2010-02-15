@@ -25,7 +25,7 @@ const int attempts_per_image = 3;
 
 void display_usage()
 {
-	printf("\nICamViewProxy 2007 - Thomas Barker - www.barkered.com\nUsage: ICamViewProxy -camhost 192.168.1.3 -camport 9001 -camuser user -campass password -proxyport 8888\n");
+	printf("\nICamViewProxy 2007 - Thomas Barker - www.barkered.com\nUsage: ICamViewProxy -camhost 192.168.1.3 -camport 9001 -camuser user -campass password [ -proxyport 8888 | -move [up|down|left|right] ]\n");
 }
 
 //tcp server
@@ -62,7 +62,7 @@ int main(int argc, char **argv)
 
 	//read variables from command line
 	int nargs_set = 0;
-	std::string camhost, camuser, campass;
+	std::string camhost, camuser, campass, move;
 	int proxyport, camport;
 	proxyport = 8888;
 	camport = 9001;
@@ -99,6 +99,12 @@ int main(int argc, char **argv)
 			campass = argv[i];
 			++nargs_set;
 		}
+		else if( strcmp(argv[i],"-move") == 0 )
+		{
+			++i;
+			move = argv[i];
+			++nargs_set; // we're replacing proxyport :-)
+		}
 
 	}
 
@@ -112,6 +118,13 @@ int main(int argc, char **argv)
 	//initialise 
 	pCamView->Initialise(camhost,camport, camuser, campass);
 	
+	if (move.length() > 0) {
+	  printf("Moving Camera\n");
+	  pCamView->Login();
+	  pCamView->Movement(move);
+	  pCamView->Logout();
+	  exit(0);
+	}
 	// Resolve the argument into an IPaddress type
 	if(SDLNet_ResolveHost(&ip,NULL,proxyport)==-1)
 	{
@@ -190,6 +203,8 @@ int main(int argc, char **argv)
 
 				//how big is the image, <=0 is error
 				nfs = pCamView->RequestImage();
+
+				pCamView->Logout();
 				
 				if(nfs > 0)
 				{

@@ -14,6 +14,8 @@ public:
 	int Send(int channel, UDPpacket *out);
 	int Receive( UDPpacket *in, Uint32 delay, int timeout);
 	int Login();
+	int Logout();
+	int Movement(std::string direction);
 	int Initialise(std::string host, unsigned int port, std::string username, std::string password);
 	int RequestImage();
 
@@ -29,6 +31,7 @@ public:
 	UDPpacket *pLogin;
 	UDPpacket *pResponse;
 	UDPpacket *pRequestImage;
+	UDPpacket *pRequestMovement;
 	char *pimage;
 	char *pgoodimage;
 
