@@ -1,3 +1,11 @@
+/*
+ * Project: ICamViewProxy
+ * File:	Main.cpp
+ * Author:	Thomas Barker
+ * Ref:		http://www.barkered.com
+*/
+
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string>
@@ -8,41 +16,54 @@
 #include <unistd.h>
 #endif
 
-//SDL Headers
+// SDL Headers
 #include "SDL.h"
 #include "SDL_net.h"
 #include "ICamViewSocket.h"
 
-//tcp sending buffer
+// TCP sending buffer
 char tcp_out_buff[65535];
 
-//Frames per second
-//This is a very loose figure as i dont time the method and subtract
-//literally just 1000/fps
-//Doesnt seem worth changing since its only supposed to be a simple program
+// Frames per second
+// This is a very loose figure as i dont time the method and subtract
+// literally just 1000/fps
+// Doesnt seem worth changing since its only supposed to be a simple program
 const int fps = 6;
 const int attempts_per_image = 3;
 
 void display_usage()
 {
-	printf("\nICamViewProxy 2007 - Thomas Barker - www.barkered.com\nUsage: ICamViewProxy -camhost 192.168.1.3 -camport 9001 -camuser user -campass password [ -proxyport 8888 | -move [up|down|left|right] ]\n");
+	printf("||----------------------------------------------------------------------||\n");
+	printf("||        ICamViewProxy 2010 - Thomas Barker - www.barkered.com         ||\n");
+	printf("||----------------------------------------------------------------------||\n");
+	printf("|| ICamViewProxy originally provided support for (HCV73/HCV72)          ||\n"); 
+	printf("|| ICamViewPlus  servers. Functionality has since been added to support ||\n");
+	printf("|| HCAMV based servers.                                                 ||\n");
+	printf("||----------------------------------------------------------------------||\n");
+	printf("|| Any queries/comments/patches, please visit the ICamViewProxy website ||\n"); 
+	printf("|| Contact me at: http://www.barkered.com or boreddead@barkered.com     ||\n");
+	printf("||----------------------------------------------------------------------||\n\n");
+	printf("Usage:                                                               \n");
+	printf("\tICamViewProxy -camid 1 -camhost 192.168.1.3 -camport 9001 -camuser user -campass password [ -proxyport 8888 | -move [up|down|left|right] ]\n");
+	printf("\nExample usage for (HCV73/HCV72) ICamViewPlus  servers:\n");
+	printf("ICamViewProxy -camhost 192.168.1.3 -camport 9001 -camuser user -campass password -proxyport 8888\n");
+	printf("\nExample usage for HCAMV based servers:\n");
+	printf("ICamViewProxy -HCAMV -camhost 192.168.1.3 -camport 9001 -camuser user -campass password -proxyport 8888\n");
+	printf("\nExample usage for moving the HCAMV based servers:\n");
+	printf("ICamViewProxy -HCAMV -camhost 192.168.1.3 -camport 9001 -camuser user -campass password -move up|down|left|right\n");
 }
 
-//tcp server
+// Main app
 int main(int argc, char **argv)
 {
-	//SDL 
+	// SDL 
 	IPaddress ip,*remoteip;
 	TCPsocket server,client;
 	Uint32 ipaddr;
-	
-	// check our commandline
-	if( argc != 11 )
-	{
-		display_usage();
-		return 0;
-	}
 
+	// Bool to represent mode of execution
+	bool bHCAMMode = false;
+	
 	// initialize SDL
 	if(SDL_Init(0)==-1)
 	{
@@ -57,19 +78,27 @@ int main(int argc, char **argv)
 		exit(2);
 	}
 	
-	//create cam class
-	ICamViewSocket *pCamView = new ICamViewSocket();
-
-	//read variables from command line
+	// Read arguments from command line
 	int nargs_set = 0;
 	std::string camhost, camuser, campass, move;
 	int proxyport, camport;
+	unsigned short camID = 1;
+
+	// Hardcoded defaults
 	proxyport = 8888;
 	camport = 9001;
+
 	int i =0;
 	for(i=0; i < argc; i++)
 	{
-		if( strcmp(argv[i],"-camhost") == 0 ) 
+		if( strcmp(argv[i],"-camid") == 0)
+		{
+			++i;
+			camID = atoi(argv[i]);
+
+			// Do not increment nargs_set as we default this option to cam 1
+		}
+		else if( strcmp(argv[i],"-camhost") == 0 ) 
 		{
 			++i;
 			camhost = argv[i];
@@ -99,27 +128,38 @@ int main(int argc, char **argv)
 			campass = argv[i];
 			++nargs_set;
 		}
+		else if(strcmp(argv[i],"-HCAMV") == 0 )
+		{
+			bHCAMMode = true;
+			++nargs_set; 
+		}
 		else if( strcmp(argv[i],"-move") == 0 )
 		{
 			++i;
 			move = argv[i];
-			++nargs_set; // we're replacing proxyport :-)
+			++nargs_set; 
 		}
 
 	}
 
-	//verify we have all args set
-	if(nargs_set != 5)
+
+	// Verify we have all args set
+	if(nargs_set != 5 || (bHCAMMode && nargs_set != 6))
 	{
 		display_usage();
 		return 0;
 	}
 
+	// Create cam class
+	ICamViewSocket *pCamView = new ICamViewSocket(bHCAMMode, camID);
+
 	//initialise 
 	pCamView->Initialise(camhost,camport, camuser, campass);
 	
-	if (move.length() > 0) {
-	  printf("Moving Camera\n");
+	// If we are moving the camera, perform the operation and then exit
+	if (move.length() > 0) 
+	{
+	  printf("Moving Camera then exiting\n");
 	  pCamView->Login();
 	  pCamView->Movement(move);
 	  pCamView->Logout();
@@ -140,10 +180,12 @@ int main(int argc, char **argv)
 		exit(4);
 	}
 
-	while(1) //wait for one client to connect, then only service that. ie zone alarm
+	// This could easily be expanded to support multiple clients
+	// but for the majority of purposes there is no need.
+	while(1) // wait for one client to connect, then only service that. ie zone alarm
 	{
 		// try to accept a connection
-		client=SDLNet_TCP_Accept(server);
+		client = SDLNet_TCP_Accept(server);
 
 		if(!client)// no connection accepted, retry
 		{ 
@@ -162,27 +204,27 @@ int main(int argc, char **argv)
 		// print out the clients IP and port number
 		ipaddr=SDL_SwapBE32(remoteip->host);
 		printf("Accepted a connection from %d.%d.%d.%d port %hu\n",
-			ipaddr>>24,
-			(ipaddr>>16)&0xff,
-			(ipaddr>>8)&0xff,
-			ipaddr&0xff,
+			ipaddr >> 24,
+			(ipaddr >> 16)&0xff,
+			(ipaddr >> 8)&0xff,
+			ipaddr & 0xff,
 			remoteip->port);
 
-		//reset output buffer
+		// Reset output buffer
 		memset(tcp_out_buff,0,65535);
 	
 		std::string boundary;
-		//send header on accepted stream
+		// Send header on accepted stream
 		boundary += "HTTP/1.0 200 OK\r\nServer: ICamviewRelay-Relay\r\nConnection: close\r\nMax-Age: 0\r\nExpires: 0\r\nCache-Control: no-cache, private\r\nPragma: no-cache\r\nContent-Type: multipart/x-mixed-replace; boundary=--BoundaryString";
 
-		//cpy string into buffer
+		// Cpy string into buffer
 		strcpy(tcp_out_buff, boundary.c_str() );
 
 		//tcp send
 		SDLNet_TCP_Send(client, tcp_out_buff,  (int)boundary.length());
 
-		//boolean to control the connectivity of the socket
-		bool bstreaming =true;
+		// Boolean to control the connectivity of the socket
+		bool bstreaming = true;
 
 		while(bstreaming)
 		{
@@ -192,46 +234,49 @@ int main(int argc, char **argv)
 			static bool no_image = true;
 			int ii = 0;
 
-			//get valid image
-			//This camera is wholely unreliable this makes sure only a valid image is passed to ZM
+			// Get valid image
+			// This camera is wholely unreliable this makes sure only a valid image is passed to ZM
 			while( !bvalid )
 			{
-				printf("Attempt:  %d\n", ii++);
+				// printf("Attempt: %d\n", ii++);
 				
-				//login
+				// Login
 				pCamView->Login();
 
-				//how big is the image, <=0 is error
+				// How big is the image, <=0 is error
 				nfs = pCamView->RequestImage();
 
+				// Logout
+				// TODO this takes too much time.
 				pCamView->Logout();
 				
 				if(nfs > 0)
 				{
-					no_image = false; //we now have a valid image stored for good
-					bvalid = true;	  //image is valid
+					no_image = false; // We now have a valid image stored for good
+					bvalid = true;	  // Image is valid
 				}
-				if( ii > attempts_per_image && !no_image) //if after 2 attempts there is no image received, use old
+				if( ii > attempts_per_image && !no_image) // If after n attempts there is no image received, use old
 				{
-					nfs = pCamView->pimagesize;	//filesize is old filesize
-					bvalid = true;	//now valid
+					nfs = pCamView->pimagesize;	// Filesize is old filesize
+					bvalid = true;	// Now valid
 				}
-			} //end get valid image
+			} // End get valid image
 		
-			//convert int to str
+			// Convert int to str
 			char tmpstr[100];
 			sprintf(tmpstr, "%d", nfs);
 
-			//packet for a single jpeg send
+			// Packet for a single jpeg send
 			boundary = "\r\n\r\n--BoundaryString\r\nContent-type: image/jpeg\r\nContent-Length: ";
 			boundary += tmpstr;
 			boundary += "\r\n\r\n";
 		
-			//cpy the string into the buffer
+			// cpy the string into the buffer
 			strcpy(tcp_out_buff, boundary.c_str() );
 
-			//cpy into packet to send
-			//std::memcpy(tcp_out_buff + boundary.length(), pCamView->pgoodimage, nfs);
+			// cpy into packet to send
+			// TODO why did I comment this out so long ago and manually copy bytes?!
+			// std::memcpy(tcp_out_buff + boundary.length(), pCamView->pgoodimage, nfs);
 			for(int i=0; i<nfs; i++)
             {
 				tcp_out_buff[i + boundary.length()] = (char)pCamView->pgoodimage[i];
@@ -240,7 +285,7 @@ int main(int argc, char **argv)
 			int lentosend = (int)boundary.length()+nfs;
 			int nbytesent = SDLNet_TCP_Send(client, tcp_out_buff,  lentosend);
 			
-			//check the send happened, ie socket still alive.
+			// check the send happened, ie socket still alive.
 			if(nbytesent == 0 ||nbytesent == -1)
 			{
 				bstreaming = false;
@@ -249,11 +294,12 @@ int main(int argc, char **argv)
 			
 			SDL_Delay((Uint32)(1000.0/(double)fps));
 
-		}//end fps loop, bstreaming
+		}// end fps loop, bstreaming
 
 
 		printf("Disconnect or socket fail\n");
-		//failed or disconnect
+		
+		// failed or disconnect
 		SDLNet_TCP_Close(client); //close client
 	}
 	

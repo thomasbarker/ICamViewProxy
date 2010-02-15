@@ -1,3 +1,10 @@
+/*
+ * Project: ICamViewProxy
+ * File:	ICamViewSocket.cpp
+ * Author:	Thomas Barker
+ * Ref:		http://www.barkered.com
+*/
+
 #include "ICamViewSocket.h"
 #include <fstream>
 #include <iostream>
@@ -6,36 +13,38 @@
 
 using namespace std;
 
-//maximum size of our buffers, 64k
+// maximum size of our buffers, 64k
 #define BUFFERSIZE 65535
-#define PACKET_BUFFER_LEN 60 //tbh we are never going to receive this many, but better to have a higher upper limit
+#define PACKET_BUFFER_LEN 60 // tbh we are never going to receive this many, but better to have a higher upper limit
 
 /*
 * CTOR - construct buffers
 */
-ICamViewSocket::ICamViewSocket(void) :
+ICamViewSocket::ICamViewSocket(bool bHCAMVMode, unsigned short camID) :
 m_shost("192.168.1.3"),
-m_nport(9001)
+m_nport(9001),
+m_nCameraID(camID),
+m_bHCAMVMode(bHCAMVMode)
 {
-	//pre allocate packets for quick retrieval
+	// pre allocate packets for quick retrieval
 	pResponses = SDLNet_AllocPacketV(PACKET_BUFFER_LEN, BUFFERSIZE );
 
-	//single 6 byte packet for request
+	// single 6 byte packet for request
 	pRequestImage = SDLNet_AllocPacket(6);
 
-	//single 8 byte packet for request
+	// single 8 byte packet for request
 	pRequestMovement = SDLNet_AllocPacket(8);
 
-	//single 72 byte packet for login
+	// single 72 byte packet for login
 	pLogin = SDLNet_AllocPacket(72);
 
-	//single response packet, tmp packet
+	// single response packet, tmp packet
 	pResponse = SDLNet_AllocPacket(BUFFERSIZE);	
 
-	//image buffer
-	//temporary working image
+	// image buffer
+	// temporary working image
 	pimage = new char[BUFFERSIZE];
-	//known good image
+	// known good image
 	pgoodimage= new char[BUFFERSIZE];
 
 }
@@ -66,7 +75,7 @@ int ICamViewSocket::Send(int channel, UDPpacket *out)
 	}
 	else
 	{
-		//printf("Packet sent\n");
+		// printf("Packet sent\n");
 	}
 
 	return 0;
@@ -88,19 +97,20 @@ int ICamViewSocket::Receive( UDPpacket *in, Uint32 delay, int timeout)
 
 		if(ticks2 - ticks > (Uint32) timeout)
 		{
-			//printf("timed out in rec ...\n"); // this is commented to look nicer...
+			// printf("timed out in rec ...\n"); // this is commented to look nicer...
 			return(0);
 		}
 		err = SDLNet_UDP_Recv(m_socket, in);
 
-		//if packet is received.
-		// 1 = packet
-		// 0 = nothing
-		//-1 = error
+		// if packet is received.
+		//  1 = packet
+		//  0 = nothing
+		// -1 = error
 		if(err == 1)
+		{
 			return 1;
-
-		if(err == 0)
+		}
+		else if(err == 0)
 		{
 			SDL_Delay(delay);
 		}
@@ -116,36 +126,37 @@ int ICamViewSocket::Receive( UDPpacket *in, Uint32 delay, int timeout)
 */
 int ICamViewSocket::Login()
 {
-	//reset data
+	// reset data
 	memset(pLogin->data,0,72);
 	memset(pResponse->data,0,BUFFERSIZE);
 
 	pResponse->len =0;
 	pLogin->len = 0;
 
-	//create login http header
+	// create login http header
 	std::string header;
 	header = "HTTP/1.0 200 OK\r\nServer: ICamviewRelay-Relay\r\nConnection: close\r\nMax-Age: 0\r\nExpires: 0\r\nCache-Control: no-cache, private\r\nPragma: no-cache\r\nContent-Type: multipart/x-mixed-replace; boundary=--BoundaryString";
 
-	//message id
+	// message id
 	int byteid = 0;
 
-	//ID of login message, matters not here as it is not checked
+	// ID of login message, matters not here as it is not checked
 	pLogin->data[byteid++] = '0';
 	pLogin->data[byteid++] = '1';
 
 	// message type
-	//login
+	// login
 	pLogin->data[byteid++] = '4';
 	pLogin->data[byteid++] = '3';
 	pLogin->data[byteid++] = '2';
 	pLogin->data[byteid++] = '1';
 
-	//cam id, should really be configurable.
+	// cam id, should really be configurable.
 	pLogin->data[byteid++] = '0';
-	pLogin->data[byteid++] = '1';
+	pLogin->data[byteid++] = (char)(m_nCameraID + 48);
 
-	//username 32 bytes
+	// TODO these for loops should be memcpys really
+	// username 32 bytes
 	int tmpstrlen = (int)m_susername.size();
 	for(int i=0; i<tmpstrlen; i++)
 	{
@@ -153,7 +164,7 @@ int ICamViewSocket::Login()
 	}
 	byteid += 32;
 
-	//password
+	// password
 	tmpstrlen = (int)m_spassword.size();
 	for(int i=0; i<tmpstrlen; i++)
 	{
@@ -161,10 +172,10 @@ int ICamViewSocket::Login()
 	}
 	pLogin->len = 72;
 
-	//send packet
+	// send packet
 	int nstatus = Send(0, pLogin);
 
-	//receive response but dont do anything with it as its useless
+	// receive response but dont do anything with it as its useless
 	nstatus = Receive(pResponse, 0, 100);
 
 	return 0;
@@ -300,74 +311,82 @@ int ICamViewSocket::Initialise(std::string host, unsigned int port, std::string 
 int ICamViewSocket::RequestImage()
 {
 
-	//0 data structures
+	// 0 data structures
 	memset(pRequestImage->data,0,6);
 	pRequestImage->len =0;
 
-	//clean
+	// clean
 	for(int i=0;i<PACKET_BUFFER_LEN;i++)
 	{
 		pResponses[i]->len = 0;
 		memset(pResponses[i]->data,0,BUFFERSIZE);
 	}
 
-	//reset image
+	// reset image
 	memset(pimage, 0, BUFFERSIZE);
-	//for speed cant honestly get away with just setting len's but for now they stay
+	// for speed cant honestly get away with just setting len's but for now they stay
 
 	int byteid=0;
 
 	static int requestid  = 0;
 
-	//never let the id get out of range
+	// never let the id get out of range
 	if (requestid > 9)
 	{
 		requestid = 0;
 	}
 
-	//set id for reception of data
-	char tmprequestid[2];
-	sprintf(tmprequestid,"%2.0d", requestid);
+	// set id for reception of data
+	char tmprequestid[4];
+	sprintf(tmprequestid,"%02d", requestid);
 
 	pRequestImage->data[byteid++] = tmprequestid[0];
 	pRequestImage->data[byteid++] = tmprequestid[1]; //this will be ignored
 
-	//inc here incase we return
+	// inc here incase we return
 	requestid++;
 
-	//type 3003
-	//ie new image
+	// type 3003
+	// ie new image
 	pRequestImage->data[byteid++] = '3';
 	pRequestImage->data[byteid++] = '0';
 	pRequestImage->data[byteid++] = '0';
-	pRequestImage->data[byteid++] = '2';
+	if(m_bHCAMVMode)
+	{
+		pRequestImage->data[byteid++] = '2';
+	}
+	else
+	{
+		pRequestImage->data[byteid++] = '3';
+	}
+
 	pRequestImage->len = 6;
 
-	//receive response
+	// receive response
 	int nresponse = 1;
 	int nindex = 0;
 
-	//send packet to the webserver
+	// send packet to the webserver
 	int nstatus = Send(0, pRequestImage);
 
-	//get response, never go over our 'buffer' len
+	// get response, never go over our 'buffer' len
 	while( nresponse == 1 && nindex < PACKET_BUFFER_LEN )
 	{
-		//set len to 0
+		// set len to 0
 		pResponses[nindex]->len = 0;
 
-		//works local
+		// works local
 		nresponse = Receive(pResponses[nindex], 25, 50);//was 25,50
 
-		//if we have a valid response, count it.
+		// if we have a valid response, count it.
 		if(	nresponse == 1)
 		{
 			nindex++;
 		}
 	}
 
-	//supposedly we have all the packets for a message now
-	//knowing ICamView this could be a lie!
+	// supposedly we have all the packets for a message now
+	// knowing ICamView this could be a lie!
 
 	long nDataStart = 0;
 	int nfilesize = 100; // just to get things going
@@ -376,19 +395,19 @@ int ICamViewSocket::RequestImage()
 	long nDataLength = 0; 
 	Uint8 *pData = NULL;
 
-	//loop through all packets we received
+	// loop through all packets we received
 	for(int i =0; i<nindex; i++)
 	{
-		//set current packet ptr
+		// set current packet ptr
 		ppacket = pResponses[i];
 
 		if(ppacket->len > 0)
 		{
 
-			//get packet length for processing
+			// get packet length for processing
 			nDataLength = ppacket->len;
 
-			//set data pointer
+			// set data pointer
 			pData = ppacket->data;
 
 			int nrec = nDataLength;
@@ -401,17 +420,17 @@ int ICamViewSocket::RequestImage()
 
 			char sid[2];
 			int recid = 0;
-			//cpy id into buffer
+			// cpy id into buffer
 			memcpy(&sid, &pData[0], 2);
 			recid = atoi(sid);
 			int noffset = 0;
 
-			//is this sane?
-			//Does the id of this image bite match the id i requested
+			// is this sane?
+			// Does the id of this image bite match the id i requested
 			if(requestid-1 == recid)
 			{
 
-				//get offset type
+				// get offset type
 				memcpy(offset, &pData[2], 6);
 				noffset = atoi( offset );
 				if( noffset > BUFFERSIZE) {
@@ -419,13 +438,13 @@ int ICamViewSocket::RequestImage()
 				  return -1;
 				}
 
-				if( noffset == 0) //initial packet of image
+				if( noffset == 0) // initial packet of image
 				{
-					if(nrec > 8) //if we actually have 8 bytes worth of data, ie filesize
+					if(nrec > 8) // if we actually have 8 bytes worth of data, ie filesize
 					{
 						nbytesrec = 0;
-						//get image size
-						//8 bytes from byte 8 = filesize
+						// get image size
+						// 8 bytes from byte 8 = filesize
 						memcpy(filesize, &pData[8], 8);
 						nfilesize = atoi( filesize );
 					}
@@ -435,22 +454,29 @@ int ICamViewSocket::RequestImage()
 						return -1;
 					}
 
-					//					
-					//dont try and work with big images
-					//basically trashed data, we wont be receiving 64k+ data
+					// dont try and work with big images
+					// basically trashed data, we wont be receiving 64k+ data
 					if(nfilesize > BUFFERSIZE)
 					{
 //						printf("file size greater than buffer %d\n",nfilesize);
 						return -1;
 					}
 
-					//copy initial bytes into start of image
-					memcpy( &pimage[nbytesrec], &pData[25], nrec - 25);
-					nbytesrec += (nrec - 25);
+					// copy initial bytes into start of image
+					if(m_bHCAMVMode)
+					{
+						memcpy( &pimage[nbytesrec], &pData[25], nrec - 25);
+						nbytesrec += (nrec - 25);
+					}
+					else
+					{
+						memcpy( &pimage[nbytesrec], &pData[37], nrec - 37);
+						nbytesrec += (nrec - 37);
+					}
 				}
 				else if(pimage != NULL)
 				{	
-					if(nrec > 8 && nrec < nfilesize) //sanity check
+					if(nrec > 8 && nrec < nfilesize) // sanity check
 					{
 						memcpy( &pimage[noffset], &pData[8], nrec - 8);
 						nbytesrec += (nrec - 8);
@@ -464,19 +490,14 @@ int ICamViewSocket::RequestImage()
 
 				nDataStart += nDataLength ;
 
-			}//end if pid check
-		}//end >0 len check
+			}// end if pid check
+		}// end >0 len check
 	}
 
 	//if we think we have a complete good image
 	if(nbytesrec == nfilesize)
 	{
-//		char* tmpptr = pgoodimage;
-//		pgoodimage = pimage;
-//		pimage = tmpptr;
-
-
-//		should really just swap buffers here
+		// TODO should really just swap buffers here
 		pimagesize = nbytesrec;
 		memcpy(pgoodimage, pimage, nbytesrec);
 

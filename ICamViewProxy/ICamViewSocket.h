@@ -1,14 +1,20 @@
+/*
+ * Project: ICamViewProxy
+ * File:	ICamViewSocket.h
+ * Author:	Thomas Barker
+ * Ref:		http://www.barkered.com
+*/
+
 #ifndef ICAMVIEWSOCKET
 
 #include "SDL.h"
 #include "SDL_net.h"
-
 #include <string>
 
 class ICamViewSocket
 {
 public:
-	ICamViewSocket(void);
+	ICamViewSocket(bool bHCAMVMode = false, unsigned short camID = 1);
 public:
 	virtual ~ICamViewSocket(void);
 	int Send(int channel, UDPpacket *out);
@@ -24,6 +30,8 @@ public:
 	std::string m_susername;
 	std::string m_spassword;
 	unsigned int m_nport;
+	unsigned short m_nCameraID;
+	bool m_bHCAMVMode;
 	UDPsocket m_socket;
 	IPaddress m_ip;
 	UDPpacket **pResponses;
